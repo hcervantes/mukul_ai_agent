@@ -22,9 +22,10 @@ import requests
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 TEXT_MODEL = "qwen3:14b"
-VISION_MODEL = "qwen2.5vl:7b"  # change to your pulled vision model if different
+VISION_MODEL = "qwen2.5vl:7b"  # change to a vision model from 'ollama list'
 MAX_CHARS = 6000
 RASTER_DPI = 150
+MAX_PAGES = 4  # classification never needs more than the first pages
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 
@@ -35,27 +36,34 @@ MIN_TEXT_WORDS = 50  # fewer words than this in a PDF = treat as a scan
 
 
 def extract_text(path: Path) -> str:
-    import fitz  # PyMuPDF
+    import pymupdf
 
-    doc = fitz.open(str(path))
+    doc = pymupdf.open(str(path))
     text = "\n".join(page.get_text() or "" for page in doc)
     doc.close()
     return text
 
 
 def rasterize_pdf(path: Path) -> list[str]:
-    """Render each PDF page to a PNG, return base64 strings."""
-    import fitz
-    import io
+    """Render the first MAX_PAGES PDF pages to PNG, return base64 strings."""
+    import pymupdf
 
-    doc = fitz.open(str(path))
+    doc = pymupdf.open(str(path))
     images = []
-    for page in doc:
+    for page in doc[:MAX_PAGES]:
         pix = page.get_pixmap(dpi=RASTER_DPI)
-        png_bytes = pix.tobytes("png")
-        images.append(base64.b64encode(png_bytes).decode())
+        images.append(base64.b64encode(pix.tobytes("png")).decode())
+    pages = doc.page_count
     doc.close()
-    return images
+    return images, pages
+
+
+def list_local_models() -> set[str]:
+    try:
+        r = requests.get("http://localhost:11434/api/tags", timeout=5)
+        return {m["name"] for m in r.json().get("models", [])}
+    except Exception:
+        return set()
 
 
 def classify(model: str, user_content, images=None) -> dict:
@@ -75,9 +83,15 @@ def classify(model: str, user_content, images=None) -> dict:
         },
         timeout=600,
     )
-    resp.raise_for_status()
-    content = resp.json()["message"]["content"]
-    return json.loads(content)
+    if not resp.ok:
+        installed = list_local_models()
+        vision_like = sorted(m for m in installed if "vl" in m or "vision" in m)
+        print(f"ERROR: Ollama returned {resp.status_code}: {resp.text.strip()[:300]}")
+        print(f"Installed models: {sorted(installed) or '(none)'}")
+        if vision_like:
+            print(f"Vision-capable candidates: {vision_like}")
+            print(f"Retry with: python pipeline/smoke_test.py <file> --model {vision_like[0]}")
+        raise SystemExit(1)
 
 
 def main() -> int:
@@ -93,35 +107,27 @@ def main() -> int:
 
     suffix = path.suffix.lower()
 
-    try:
-        if suffix in IMAGE_SUFFIXES:
-            model = args.model or VISION_MODEL
-            print(f"[smoke_test] image input -> vision model {model}")
-            images = [base64.b64encode(path.read_bytes()).decode()]
-            result = classify(model, "Classify this document.", images)
-        elif suffix == ".txt":
+    if suffix in IMAGE_SUFFIXES:
+        model = args.model or VISION_MODEL
+        print(f"[smoke_test] image input -> vision model {model}")
+        images = [base64.b64encode(path.read_bytes()).decode()]
+        result = classify(model, "Classify this document.", images)
+    elif suffix == ".txt":
+        model = args.model or TEXT_MODEL
+        text = path.read_text(errors="replace")[:MAX_CHARS]
+        result = classify(model, text)
+    else:  # PDF path
+        text = extract_text(path)
+        word_count = len(text.split())
+        if word_count >= MIN_TEXT_WORDS:
             model = args.model or TEXT_MODEL
-            text = path.read_text(errors="replace")[:MAX_CHARS]
-            result = classify(model, text)
-        else:  # PDF path
-            text = extract_text(path)
-            word_count = len(text.split())
-            if word_count >= MIN_TEXT_WORDS:
-                model = args.model or TEXT_MODEL
-                print(f"[smoke_test] pdf with text layer ({word_count} words) -> text model {model}")
-                result = classify(model, text[:MAX_CHARS])
-            else:
-                model = args.model or VISION_MODEL
-                pages = rasterize_pdf(path)
-                print(f"[smoke_test] pdf is a scan ({word_count} words) -> rasterized {len(pages)} page(s) -> vision model {model}")
-                result = classify(model, "Classify this document.", images=pages)
-    except requests.HTTPError as e:
-        print(f"ERROR: Ollama rejected the call: {e}")
-        print("Is the model pulled? ollama pull <model>")
-        return 1
-    except ImportError:
-        print("ERROR: PyMuPDF missing. Run: pip install pymupdf")
-        return 1
+            print(f"[smoke_test] pdf with text layer ({word_count} words) -> text model {model}")
+            result = classify(model, text[:MAX_CHARS])
+        else:
+            model = args.model or VISION_MODEL
+            images, pages = rasterize_pdf(path)
+            print(f"[smoke_test] pdf is a scan ({word_count} words, {pages} pages, sending first {len(images)}) -> vision model {model}")
+            result = classify(model, "Classify this document.", images=images)
 
     print(json.dumps(result, indent=2))
     return 0
