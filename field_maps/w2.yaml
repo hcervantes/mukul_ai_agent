@@ -6,10 +6,10 @@ form: W-2
 schema_target: wageIncome[]
 fields:
   employerName:
-    from: "Employer name (top left of form)"
+    from: "Employer NAME only, top-left of form. The employer name, NOT the street address."
     validate: { type: string, required: true }
   ein:
-    from: "Employer Identification Number, box b"
+    from: "Employer Identification Number in box b, formatted XX-XXXXXXX"
     validate: { type: ein, pattern: "^[0-9]{2}-[0-9]{7}$", required: false }
   wages:
     from: "Box 1 - Wages, tips, other compensation"
@@ -24,7 +24,7 @@ fields:
     from: "Box 5 - Medicare wages and tips"
     validate: { type: cents, min: 0 }
   state:
-    from: "Box 15 - Employer state and state ID"
+    from: "Box 15 - the TWO-LETTER state code only (e.g. OH). Do NOT include the employer's state ID number."
     validate: { type: state_code, length: 2, required: false }
   stateWages:
     from: "Box 16 - State wages, tips, etc."
@@ -37,6 +37,6 @@ sanity_rules:
   - field: federalWithholding
     rule: "federalWithholding must not exceed 60% of wages; else -> unresolved (WARN)"
   - field: medicareWages
-    rule: "medicareWages >= ssWages is expected; violations -> unresolved (WARN)"
+    rule: "medicareWages < ssWages is possible when wages exceed the SS wage cap; flag WARN, do not auto-fail"
   - field: stateWithholding
     rule: "if stateWithholding > 0 then state and stateWages are required; else -> unresolved (BLOCK)"
