@@ -10,7 +10,7 @@ this script converts, checks, and flags. Anything the model cannot read
 must land in unresolvedFields.
 
 Usage:
-  python pipeline/extract_smoke.py <pdf-or-png> [--page N] [--form W-2] [--model M] [--dpi N]
+  python pipeline/extract_smoke.py <pdf-or-png> [--page N] [--form W-2] [--dpi N]
 """
 
 import argparse
@@ -36,9 +36,36 @@ EXTRACT_PROMPT = REPO / "prompts" / "extract.txt"
 EIN_RE = re.compile(r"^[0-9]{2}-[0-9]{7}$")
 STATE_RE = re.compile(r"^[A-Z]{2}$")
 
-# Yaml 'validate' keyword -> checker in this file. Add new types here.
-def check_ein(v): return bool(EIN_RE.match(v)) if v else True
-def check_state_code(v): return bool(STATE_RE.match(v)) if v else True
+
+def check_ein(v):
+    return bool(EIN_RE.match(v)) if v else True
+
+
+def check_state_code(v):
+    return bool(STATE_RE.match(v)) if v else True
+
+
+FORM_ALIASES = {
+    # --form value (lowercased) -> field-map file stem
+    "w-2": "w2",
+    "w2": "w2",
+    "1099-nec": "1099_nec",
+    "1099nec": "1099_nec",
+    "1099-int": "1099_int",
+    "1099int": "1099_int",
+    "ssa-1099": "ssa_1099",
+    "ssa1099": "ssa_1099",
+}
+
+
+def load_field_map(form: str) -> dict:
+    key = form.lower().strip()
+    stem = FORM_ALIASES.get(key, key.replace(" ", "_").replace("-", "_"))
+    path = REPO / "field_maps" / f"{stem}.yaml"
+    if not path.exists():
+        forms = sorted(p.stem for p in (REPO / "field_maps").glob("*.yaml"))
+        raise SystemExit(f"ERROR: no field map for {form!r}. Available: {forms}")
+    return yaml.safe_load(path.read_text())
 
 
 def page_to_b64(path: Path, page_no: int | None, dpi: int) -> tuple[str, int]:
@@ -68,14 +95,6 @@ def to_cents(v):
         return int(round(float(s) * 100))
     except ValueError:
         return None  # unreadable -> unresolved, never guessed
-
-
-def load_field_map(form: str) -> dict:
-    path = REPO / "field_maps" / f"{form.lower().replace('-', '_').replace(' ', '_')}.yaml"
-    if not path.exists():
-        forms = sorted(p.stem for p in (REPO / "field_maps").glob("*.yaml"))
-        raise SystemExit(f"ERROR: no field map for {form}. Available: {forms}")
-    return yaml.safe_load(path.read_text())
 
 
 def call_model(model: str, messages: list[dict]) -> dict:
@@ -156,24 +175,23 @@ def main() -> int:
 
     img, total = page_to_b64(path, args.page, args.dpi)
     page_desc = f"page {args.page} of {total}" if args.page or total > 1 else "single page"
-    use_vision = path.suffix.lower() in IMAGE_SUFFIXES or args.page is not None or True  # v1: always vision for forms
 
     print(f"[extract] {args.form} from {page_desc} | model {VISION_MODEL} | ctx {NUM_CTX}")
 
-    if use_vision:
-        user_content = (
-            f"Extract the {args.form} fields from this image. "
-            "Return JSON with exactly these keys (values or null): "
-            + json.dumps(schema_for_model)
-            + '. Additionally include "unresolvedFields": {name: partial reading} '
-            "for anything visible but illegible."
-        )
-        result = call_model(VISION_MODEL, [
+    user_content = (
+        f"Extract the {args.form} fields from this image. "
+        "Return JSON with exactly these keys (values or null): "
+        + json.dumps(schema_for_model)
+        + '. Additionally include "unresolvedFields": {name: partial reading} '
+        "for anything visible but illegible."
+    )
+    result = call_model(
+        VISION_MODEL,
+        [
             {"role": "system", "content": EXTRACT_PROMPT.read_text()},
             {"role": "user", "content": user_content, "images": [img]},
-        ])
-    else:
-        raise SystemExit("text-path extraction lands in Phase 1; smoke test is vision")
+        ],
+    )
 
     unresolved = result.pop("unresolvedFields", {})
     clean, issues = validate_fragment(result, field_map)
