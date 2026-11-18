@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Phase 0 smoke test: document -> classify via local Ollama -> JSON.
 
-Handling by input:
-- PDF with a text layer -> classify text with the text model (qwen3:14b)
-- PDF with NO text layer (a scan) -> rasterize pages with PyMuPDF,
-  classify with the vision model. This mirrors the real pipeline:
-  text first, vision only when text is absent.
-- PNG / JPG -> vision model directly
-- TXT -> text model
+Inputs and behavior:
+- PDF with text layer -> text model classifies the whole file
+- PDF scan with ONE page -> vision model on that page
+- PDF scan with MULTIPLE pages -> vision model classifies EACH page
+  separately and reports per-page results. Clients upload packages,
+  not clean single-form PDFs, so classification is per page.
+- PNG / JPG -> vision model directly; TXT -> text model.
 
-Usage: python pipeline/smoke_test.py <file> [--model MODEL]
+Usage: python pipeline/smoke_test.py <file> [--model MODEL] [--dpi N]
 """
 
 import argparse
@@ -22,18 +22,17 @@ import requests
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 TEXT_MODEL = "qwen3:14b"
-VISION_MODEL = "qwen2.5vl:7b"  # change to a vision model from 'ollama list'
+VISION_MODEL = "qwen2.5vl:7b"
 MAX_CHARS = 6000
-RASTER_DPI = 150
-MAX_PAGES = 4  # classification never needs more than the first pages
-NUM_CTX = 16384  # rasterized pages (~3000 tokens/page) blow past the 4096 default
+DEFAULT_DPI = 150
+NUM_CTX = 8192  # per-page classification needs far less than multi-page
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 
 CLASSIFY_PROMPT = (
     Path(__file__).resolve().parent.parent / "prompts" / "classify.txt"
 )
-MIN_TEXT_WORDS = 50  # fewer words than this in a PDF = treat as a scan
+MIN_TEXT_WORDS = 50
 
 
 def extract_text(path: Path) -> str:
@@ -45,18 +44,16 @@ def extract_text(path: Path) -> str:
     return text
 
 
-def rasterize_pdf(path: Path) -> tuple[list[str], int]:
-    """Render the first MAX_PAGES PDF pages to PNG; return (base64 list, page count)."""
+def rasterize_pages(path: Path, dpi: int) -> list[str]:
     import pymupdf
 
     doc = pymupdf.open(str(path))
-    images = []
-    for page in doc[:MAX_PAGES]:
-        pix = page.get_pixmap(dpi=RASTER_DPI)
-        images.append(base64.b64encode(pix.tobytes("png")).decode())
-    pages = doc.page_count
+    images = [
+        base64.b64encode(page.get_pixmap(dpi=dpi).tobytes("png")).decode()
+        for page in doc
+    ]
     doc.close()
-    return images, pages
+    return images
 
 
 def list_local_models() -> set[str]:
@@ -67,7 +64,7 @@ def list_local_models() -> set[str]:
         return set()
 
 
-def classify(model: str, user_content, images=None) -> dict:
+def classify(model: str, user_content, images=None, label: str = "") -> dict:
     message = {"role": "user", "content": user_content}
     if images:
         message["images"] = images
@@ -87,20 +84,20 @@ def classify(model: str, user_content, images=None) -> dict:
     )
     if not resp.ok:
         installed = list_local_models()
-        vision_like = sorted(m for m in installed if "vl" in m or "vision" in m)
-        print(f"ERROR: Ollama returned {resp.status_code}: {resp.text.strip()[:300]}")
+        print(f"ERROR: Ollama returned {resp.status_code}: {resp.text[:300]}")
         print(f"Installed models: {sorted(installed) or '(none)'}")
-        if vision_like:
-            print(f"Vision-capable candidates: {vision_like}")
-            print(f"Retry with: python pipeline/smoke_test.py <file> --model {vision_like[0]}")
         raise SystemExit(1)
-    return json.loads(resp.json()["message"]["content"])
+    result = json.loads(resp.json()["message"]["content"])
+    if label:
+        print(f"  {label}: {json.dumps(result)}")
+    return result
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("file")
-    ap.add_argument("--model", default=None, help="override the model choice")
+    ap.add_argument("--model", default=None)
+    ap.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     args = ap.parse_args()
 
     path = Path(args.file)
@@ -112,27 +109,43 @@ def main() -> int:
 
     if suffix in IMAGE_SUFFIXES:
         model = args.model or VISION_MODEL
-        print(f"[smoke_test] image input -> vision model {model}")
+        print(f"[smoke_test] image -> {model}")
         images = [base64.b64encode(path.read_bytes()).decode()]
         result = classify(model, "Classify this document.", images)
-    elif suffix == ".txt":
-        model = args.model or TEXT_MODEL
-        text = path.read_text(errors="replace")[:MAX_CHARS]
-        result = classify(model, text)
-    else:  # PDF path
-        text = extract_text(path)
-        word_count = len(text.split())
-        if word_count >= MIN_TEXT_WORDS:
-            model = args.model or TEXT_MODEL
-            print(f"[smoke_test] pdf with text layer ({word_count} words) -> text model {model}")
-            result = classify(model, text[:MAX_CHARS])
-        else:
-            model = args.model or VISION_MODEL
-            images, pages = rasterize_pdf(path)
-            print(f"[smoke_test] pdf is a scan ({word_count} words, {pages} pages, sending first {len(images)}) -> vision model {model} (ctx {NUM_CTX})")
-            result = classify(model, "Classify this document.", images=images)
+        print(json.dumps(result, indent=2))
+        return 0
 
-    print(json.dumps(result, indent=2))
+    if suffix == ".txt":
+        model = args.model or TEXT_MODEL
+        print(f"[smoke_test] txt -> {model}")
+        result = classify(model, path.read_text(errors="replace")[:MAX_CHARS])
+        print(json.dumps(result, indent=2))
+        return 0
+
+    # PDF
+    text = extract_text(path)
+    word_count = len(text.split())
+    if word_count >= MIN_TEXT_WORDS:
+        model = args.model or TEXT_MODEL
+        print(f"[smoke_test] pdf text layer ({word_count} words) -> {model}")
+        result = classify(model, text[:MAX_CHARS])
+        print(json.dumps(result, indent=2))
+        return 0
+
+    model = args.model or VISION_MODEL
+    images = rasterize_pages(path, args.dpi)
+    print(f"[smoke_test] pdf scan; classifying each of {len(images)} page(s) with {model} (dpi {args.dpi}, ctx {NUM_CTX})")
+    results = []
+    for i, img in enumerate(images, 1):
+        result = classify(
+            model,
+            f"Classify this document. It is page {i} of a multi-page scan.",
+            images=[img],
+            label=f"page {i}",
+        )
+        results.append({"page": i, **result})
+    cats = [r.get("category") for r in results]
+    print("\nSummary:", json.dumps(cats))
     return 0
 
 
