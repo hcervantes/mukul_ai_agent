@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Eval documents are LOCAL ONLY (sanitization required before any commit)
+eval/docs/*
+!eval/docs/.gitkeep
+# Secrets / service tokens
+.env
+*.pem
+# Model caches
+.ollama/
+models/

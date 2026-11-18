@@ -1,0 +1,42 @@
+# W-2 field map: form box -> facts sheet path (identity/wageIncome item)
+# Money values are converted to integer cents before validation.
+# 'hint' feeds the extraction prompt; 'validate' is checked mechanically after extraction.
+
+form: W-2
+schema_target: wageIncome[]
+fields:
+  employerName:
+    from: "Employer name (top left of form)"
+    validate: { type: string, required: true }
+  ein:
+    from: "Employer Identification Number, box b"
+    validate: { type: ein, pattern: "^[0-9]{2}-[0-9]{7}$", required: false }
+  wages:
+    from: "Box 1 - Wages, tips, other compensation"
+    validate: { type: cents, min: 0, required: true }
+  federalWithholding:
+    from: "Box 2 - Federal income tax withheld"
+    validate: { type: cents, min: 0 }
+  ssWages:
+    from: "Box 3 - Social security wages"
+    validate: { type: cents, min: 0 }
+  medicareWages:
+    from: "Box 5 - Medicare wages and tips"
+    validate: { type: cents, min: 0 }
+  state:
+    from: "Box 15 - Employer state and state ID"
+    validate: { type: state_code, length: 2, required: false }
+  stateWages:
+    from: "Box 16 - State wages, tips, etc."
+    validate: { type: cents, min: 0 }
+  stateWithholding:
+    from: "Box 17 - State income tax"
+    validate: { type: cents, min: 0 }
+
+sanity_rules:
+  - field: federalWithholding
+    rule: "federalWithholding must not exceed 60% of wages; else -> unresolved (WARN)"
+  - field: medicareWages
+    rule: "medicareWages >= ssWages is expected; violations -> unresolved (WARN)"
+  - field: stateWithholding
+    rule: "if stateWithholding > 0 then state and stateWages are required; else -> unresolved (BLOCK)"

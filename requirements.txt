@@ -1,0 +1,5 @@
+# Phase 0 runtime
+requests>=2.32     # talking to Ollama's OpenAI-compatible API
+pypdf>=4.0         # PDF text extraction (text layer first; vision fallback later)
+jsonschema>=4.21   # validate facts sheets / extraction output against schema
+PyYAML>=6.0        # field maps

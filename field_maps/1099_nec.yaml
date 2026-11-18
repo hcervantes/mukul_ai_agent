@@ -1,0 +1,18 @@
+# 1099-NEC field map -> otherIncome[] (form: 1099-NEC)
+
+form: 1099-NEC
+schema_target: otherIncome[]
+fields:
+  payer:
+    from: "PAYER'S name, left panel"
+    validate: { type: string, required: false }
+  amount:
+    from: "Box 1 - Nonemployee compensation"
+    validate: { type: cents, min: 0, required: true }
+  federalWithholding:
+    from: "Box 4 - Federal income tax withheld"
+    validate: { type: cents, min: 0 }
+
+sanity_rules:
+  - field: amount
+    rule: "amount > 0 expected for a real NEC; 0 or unreadable -> unresolved (WARN)"

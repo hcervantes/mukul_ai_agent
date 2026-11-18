@@ -1,0 +1,18 @@
+# SSA-1099 field map -> otherIncome[] (form: SSA-1099)
+
+form: SSA-1099
+schema_target: otherIncome[]
+fields:
+  payer:
+    from: "Social Security Administration"
+    const: "Social Security Administration"
+  amount:
+    from: "Box 5 - Net benefits (after repayment of any benefits withheld)"
+    validate: { type: cents, min: 0, required: true }
+  federalWithholding:
+    from: "Box 6 - Voluntary federal income tax withheld"
+    validate: { type: cents, min: 0 }
+
+sanity_rules:
+  - field: amount
+    rule: "amount covers boxes 3+4+5 relationship: if amounts disagree with box 5 -> unresolved (WARN)"

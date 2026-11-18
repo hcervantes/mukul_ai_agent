@@ -1,0 +1,19 @@
+# 1099-INT field map -> otherIncome[] (form: 1099-INT)
+# v1 scope: boxes 1 and 4 only. Savings bond interest (box 3) and OID are v2.
+
+form: 1099-INT
+schema_target: otherIncome[]
+fields:
+  payer:
+    from: "PAYER'S name"
+    validate: { type: string, required: false }
+  amount:
+    from: "Box 1 - Interest income"
+    validate: { type: cents, min: 0, required: true }
+  federalWithholding:
+    from: "Box 4 - Federal income tax withheld"
+    validate: { type: cents, min: 0 }
+
+sanity_rules:
+  - field: amount
+    rule: "amount >= 0; negative -> unresolved (WARN) (could be a holding loss; human reviews)"
