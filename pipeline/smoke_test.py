@@ -26,6 +26,7 @@ VISION_MODEL = "qwen2.5vl:7b"  # change to a vision model from 'ollama list'
 MAX_CHARS = 6000
 RASTER_DPI = 150
 MAX_PAGES = 4  # classification never needs more than the first pages
+NUM_CTX = 16384  # rasterized pages (~3000 tokens/page) blow past the 4096 default
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 
@@ -44,8 +45,8 @@ def extract_text(path: Path) -> str:
     return text
 
 
-def rasterize_pdf(path: Path) -> list[str]:
-    """Render the first MAX_PAGES PDF pages to PNG, return base64 strings."""
+def rasterize_pdf(path: Path) -> tuple[list[str], int]:
+    """Render the first MAX_PAGES PDF pages to PNG; return (base64 list, page count)."""
     import pymupdf
 
     doc = pymupdf.open(str(path))
@@ -80,6 +81,7 @@ def classify(model: str, user_content, images=None) -> dict:
             ],
             "stream": False,
             "format": "json",
+            "options": {"num_ctx": NUM_CTX},
         },
         timeout=600,
     )
@@ -92,6 +94,7 @@ def classify(model: str, user_content, images=None) -> dict:
             print(f"Vision-capable candidates: {vision_like}")
             print(f"Retry with: python pipeline/smoke_test.py <file> --model {vision_like[0]}")
         raise SystemExit(1)
+    return json.loads(resp.json()["message"]["content"])
 
 
 def main() -> int:
@@ -126,7 +129,7 @@ def main() -> int:
         else:
             model = args.model or VISION_MODEL
             images, pages = rasterize_pdf(path)
-            print(f"[smoke_test] pdf is a scan ({word_count} words, {pages} pages, sending first {len(images)}) -> vision model {model}")
+            print(f"[smoke_test] pdf is a scan ({word_count} words, {pages} pages, sending first {len(images)}) -> vision model {model} (ctx {NUM_CTX})")
             result = classify(model, "Classify this document.", images=images)
 
     print(json.dumps(result, indent=2))
