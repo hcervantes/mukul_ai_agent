@@ -24,13 +24,13 @@ fields:
     from: "Box 5 - Medicare wages and tips"
     validate: { type: cents, min: 0 }
   state:
-    from: "Box 15 - the TWO-LETTER state code only (e.g. OH). Do NOT include the employer's state ID number."
+    from: "Box 15 state code (e.g. OH). If box 15 is blank or absent, return null - do not invent a state."
     validate: { type: state_code, length: 2, required: false }
   stateWages:
-    from: "Box 16 - State wages, tips, etc."
+    from: "Box 16 - State wages. If box 16 is blank or absent, return null. NEVER use box 12 amounts (e.g. code DD) here."
     validate: { type: cents, min: 0 }
   stateWithholding:
-    from: "Box 17 - State income tax"
+    from: "Box 17 - State income tax. If box 17 is blank or absent, return null."
     validate: { type: cents, min: 0 }
 
 sanity_rules:
@@ -41,4 +41,6 @@ sanity_rules:
   - field: stateWithholding
     rule: "if stateWithholding > 0 then state and stateWages are required; else -> unresolved (BLOCK)"
   - field: stateWages
-    rule: "stateWages differing from wages by more than ~1% is almost always a misread (dropped digit); flag WARN"
+    rule: "stateWages should equal wages (within ~1%); larger divergence is almost always a misread or substitution -> WARN"
+  - cross: state-withholding trio
+    rule: "if any of state/stateWages/stateWithholding is filled but the others are null, the trio is inconsistent -> unresolved (WARN); an empty box must stay null, never be filled from another box"
