@@ -2,12 +2,15 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-# Eval documents are LOCAL ONLY (sanitization required before any commit)
+# Eval documents AND results are LOCAL ONLY (sanitization required before any commit)
 eval/docs/*
 !eval/docs/.gitkeep
+eval/results/
 # Secrets / service tokens
 .env
 *.pem
 # Model caches
 .ollama/
 models/
+# scratch run outputs
+out_*.json
