@@ -131,7 +131,10 @@ def validate_fragment(fragment: dict, field_map: dict):
         issues.append("SANITY: stateWithholding without state code -> unresolved (BLOCK)")
     stwg = clean.get("stateWages")
     if wages and stwg and stwg != wages and abs(stwg - wages) > 0.01 * wages:
-        issues.append(f"SANITY: stateWages {stwg} differs from wages {wages} by >1% (dropped digit?) -> unresolved (WARN)")
+        issues.append(f"SANITY: stateWages {stwg} differs from wages {wages} by >1% (misread or box substitution) -> unresolved (WARN)")
+    trio = [state, stwg, stw]
+    if any(trio) and not all(trio):
+        issues.append("SANITY: state trio incomplete (state/stateWages/stateWithholding should be all present or all empty) -> unresolved (WARN)")
     return clean, issues
 
 
