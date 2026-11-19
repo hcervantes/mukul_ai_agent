@@ -40,3 +40,5 @@ sanity_rules:
     rule: "medicareWages < ssWages is possible when wages exceed the SS wage cap; flag WARN, do not auto-fail"
   - field: stateWithholding
     rule: "if stateWithholding > 0 then state and stateWages are required; else -> unresolved (BLOCK)"
+  - field: stateWages
+    rule: "stateWages differing from wages by more than ~1% is almost always a misread (dropped digit); flag WARN"
