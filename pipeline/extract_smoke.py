@@ -151,6 +151,9 @@ def validate_fragment(fragment: dict, field_map: dict) -> tuple[dict, list[str]]
     stw = clean.get("stateWithholding")
     if stw and not state:
         issues.append("SANITY: stateWithholding present but no state code -> unresolved (BLOCK)")
+    stwg = clean.get("stateWages")
+    if wages and stwg and stwg != wages and abs(stwg - wages) > 0.01 * wages:
+        issues.append(f"SANITY: stateWages {stwg} differs from wages {wages} by >1% (dropped digit?) -> unresolved (WARN)")
     return clean, issues
 
 
