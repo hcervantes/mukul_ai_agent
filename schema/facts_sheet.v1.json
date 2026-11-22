@@ -69,32 +69,38 @@
           "state": { "type": "string", "minLength": 2, "maxLength": 2 },
           "stateWithholding": { "$ref": "#/$defs/cents" },
           "source": { "$ref": "#/$defs/sourceCitation" }
-        },
+        }
       }
     },
     "scheduleC": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["origin", "income", "expenses"],
-      "properties": {
-        "origin": { "const": "books" },
-        "income": { "$ref": "#/$defs/cents" },
-        "expenses": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["category", "amount"],
-            "properties": {
-              "category": { "type": "string" },
-              "amount": { "$ref": "#/$defs/cents" },
-              "miles": { "type": "integer", "minimum": 0 },
-              "rate": { "$ref": "#/$defs/cents" },
-              "origin": { "enum": ["books", "odometer"] }
+      "type": "array",
+      "description": "One item per business/Schedule C (a taxpayer with two sole props gets two entries).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["origin", "income", "expenses"],
+        "properties": {
+          "businessName": { "type": "string", "description": "Business name or activity as shown in the books; distinguishes multiple Schedule Cs." },
+          "ein": { "$ref": "#/$defs/ein" },
+          "origin": { "const": "books" },
+          "income": { "$ref": "#/$defs/cents", "description": "Gross receipts per the books." },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["category", "amount"],
+              "properties": {
+                "category": { "type": "string" },
+                "amount": { "$ref": "#/$defs/cents", "description": "COMPUTED by pipeline code: category totals pulled from books; for mileage, miles * rate. Never asserted by a model." },
+                "miles": { "type": "integer", "minimum": 0 },
+                "rate": { "$ref": "#/$defs/cents", "description": "IRS business mileage rate for the tax year, in cents per mile (e.g. $0.70/mile = 70). Pipeline constant, not extracted." },
+                "origin": { "enum": ["books", "odometer"] }
+              }
             }
-          }
-        },
-        "totalExpenses": { "$ref": "#/$defs/cents" }
+          },
+          "totalExpenses": { "$ref": "#/$defs/cents", "description": "COMPUTED by pipeline code: sum of expense amounts. Review check, not transcribed." }
+        }
       }
     },
     "adjustments": {
