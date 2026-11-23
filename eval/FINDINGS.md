@@ -42,3 +42,31 @@ Sample docs stay in local folders, never in the repo, never in cloud agents.
 **Hardware note (baseline for the box decision):** all of the above ran on
 a Windows CPU machine at 7B-vision-model speed (minutes per page). The
 Strix Halo rerun of this exact harness is Phase 4's headline comparison.
+
+## 2026-11-23 - Strix Halo first benchmark (GEEKOM A9 Mega 128GB, Ollama on Ubuntu 24.04)
+
+**H1 - Same doc, same model (qwen2.5vl:7b @ dpi 150): Strix Halo 25.5s vs
+Windows desktop 72.0s end-to-end = 2.8x speedup.** Classification 0.95 both.
+Result JSON identical field-for-field on both backends, including both
+validation issues (stateWithholding without state code -> BLOCK; state
+trio incomplete -> WARN). Quality parity confirmed: speed was free.
+Scanner/timing context: benchmarking is now cheap enough to run per prompt
+change, which changes how often we can iterate on field maps.
+
+**H2 - qwen3:14b eval rate 23.7 tok/s = ~88% of the bandwidth ceiling**
+(dense 14B Q4: 256GB/s / 9.3GB ~= 27 tok/s theoretical max). The dense-model
+speed story is near the physics limit already; sparse/MoE models and the
+bigger vision head (qwen2.5vl:32b) are the remaining headroom to measure.
+
+**H3 - "name" leaked into unresolvedFields on BOTH backends and BOTH form
+types (W-2 and 1099-NEC runs).** Systematic prompt/field-map issue, not a
+backend anomaly: the extraction prompt invites the taxpayer name, the pipeline
+correctly refuses it (not in the field map) and parks it in unresolved.
+Cleanup candidate for the prompt pass; not a correctness risk.
+
+**Ops notes for the box (mukulai-box1):** headless bootstrap blockers were
+openssh-server missing on default Ubuntu, Ollama binding 127.0.0.1 (fix:
+OLLAMA_HOST=0.0.0.0 in the service file), and Open WebUI container needing
+host.docker.internal gateway config. All resolved; box is SSH (tailnet) +
+browser chat (:8080) + pipeline functional. Fold into setup_box.sh for Box2.
+
